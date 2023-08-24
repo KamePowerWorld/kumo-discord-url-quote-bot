@@ -6,6 +6,7 @@ import yaml
 
 intents = discord.Intents.default()
 intents.message_content = True 
+intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -15,9 +16,8 @@ def load_config():
 
 @bot.event
 async def on_ready():
-    global guild_id
+    global guild_id 
     print(f'Logged in as {bot.user.name}')
-    
 
     config = load_config()
     guild_id = config.get('guild_id', None)
@@ -28,50 +28,40 @@ async def on_ready():
             await guild.chunk()
 
 @bot.event
-async def on_message(message):
-    if guild.id != guild_id :
-        return
-    # メッセージリンクの正規表現パターン
-    link_pattern = r'https://discord\.com/channels/\d+/\d+/\d+'
-    matches = re.findall(link_pattern, message.content)
+async def on_message(message:discord.Message):
+    global guild_id  # global修飾子を使用して外部のguild_id変数を使用
+    guild = message.guild  # メッセージが属するギルドを取得
+    if guild and guild.id == guild_id:
+        # メッセージリンクの正規表現パターン
+        link_pattern = r'https://discord\.com/channels/\d+/\d+/\d+'
+        matches = re.findall(link_pattern, message.content)
 
-    for link in matches:
-        link_parts = link.split('/')
-        if len(link_parts) == 7:  # 正しいリンク形式である場合
-            guild_id = int(link_parts[4])
-            channel_id = int(link_parts[5])
-            message_id = int(link_parts[6])
+        for link in matches:
+            link_parts = link.split('/')
+            if len(link_parts) == 7:  # 正しいリンク形式である場合
+                guild_id = int(link_parts[4])
+                channel_id = int(link_parts[5])
+                message_id = int(link_parts[6])
+                guild = bot.get_guild(guild_id)
+                channel = guild.get_channel(channel_id)
+                msg = await channel.fetch_message(message_id)
+                guild = bot.get_guild(guild_id)
+                target_channel =  message.channel
 
-            guild = bot.get_guild(guild_id)
-            channel = guild.get_channel(channel_id)
-            msg = await channel.fetch_message(message_id)
-            target_channel = channel  # 通知を送るチャンネルを指定
+                if target_channel:
+                    embed = discord.Embed(
+                        title="証拠メッセージ",
+                        color=discord.Color.red()  # 赤色
+                    )
 
-            banned_by = None
+                    embed.add_field(name="ID", value=message.author.name, inline=False)
+                    embed.add_field(name="ニックネーム", value=message.author.mention, inline=False)
 
-            async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
-                if entry.target == message.author:
-                    banned_by = entry.user
-                    break
-            
-            if target_channel:
-                embed = discord.Embed(
-                    title=f"{banned_by.name}",
-                    color=discord.Color.red()  # 赤色
-                )
+                    if isinstance(message.author, discord.Member) and message.author.nick is not None:
+                        embed.add_field(name="サーバーニックネーム", value=message.author.nick, inline=False)
 
-                embed.add_field(name="ID", value=message.author.name, inline=False)
-                embed.add_field(name="ニックネーム", value=message.author.display_name, inline=False)
-                
-                if isinstance(message.author, discord.Member) and message.author.nick is not None:
-                    embed.add_field(name="サーバーニックネーム", value=message.author.nick, inline=False)
-                
-
-                embed.set_thumbnail(url=message.author.avatar_url)
-
-
-                
-                await target_channel.send(embed=embed)
+                    embed.add_field(name='引用メッセージ', value=msg.content, inline=False)
+                    await target_channel.send(embed=embed)
 
     await bot.process_commands(message)
 
